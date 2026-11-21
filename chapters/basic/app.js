@@ -12,6 +12,7 @@ const pick = a => a[Math.floor(Math.random() * a.length)];
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 /* ---------- audio: speech synthesis + WebAudio effects ---------- */
+const BUILD = '@@BUILD@@';   // replaced by the Pages workflow at deploy time
 const Speech = (() => {
   let voice = null, ready = false, enabled = true;
   let lastWarn = 0;
@@ -62,7 +63,12 @@ const Speech = (() => {
       const u = new SpeechSynthesisUtterance(text);
       u.lang = 'en-GB'; u.voice = voice;
       u.rate = opts.rate || 0.85; u.pitch = opts.pitch || 1.05; u.volume = 1;
+      let spoke = false;
+      u.onstart = () => { spoke = true; };
+      u.onerror = (ev) => { console.warn('[speech] error:', ev.error, text); if (!spoke) warnNoVoice(); };
+      u.onend = () => { if (!spoke) { console.warn('[speech] ended without starting:', text); warnNoVoice(); } };
       window.speechSynthesis.speak(u);
+      setTimeout(() => { if (!spoke && !window.speechSynthesis.speaking) warnNoVoice(); }, 900);
     } catch (e) { warnNoVoice(); }
   }
   return { say, setEnabled: v => { enabled = v; if (!v && 'speechSynthesis' in window) window.speechSynthesis.cancel(); }, isEnabled: () => enabled, voiceName: () => voice && voice.name };
@@ -899,6 +905,8 @@ const App = (() => {
       if (v) { Sfx.click(); Speech.say('Hello! This is English Fun.'); }   // self-test on re-enable
     });
     Speech.setEnabled(Store.get('soundOn') !== false); paint();
+    const foot = document.querySelector('.appfoot');
+    if (foot && BUILD.indexOf('@@') === -1) { const s = document.createElement('span'); s.textContent = ' · v' + BUILD; foot.appendChild(s); }
     // periodic repaint: Android Chrome can register voices late after boot
     setInterval(paint, 3000);
     $('#btn-home').addEventListener('click', renderMap);
