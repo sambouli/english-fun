@@ -53,7 +53,8 @@ const Speech = (() => {
   }
   function say(text, opts) {
     opts = opts || {};
-    if (!enabled || !('speechSynthesis' in window)) return;
+    if (!enabled) return;
+    if (!('speechSynthesis' in window)) { warnNoVoice(); return; }
     try {
       if (!voice) pickVoice();   // lazy re-pick: headless/late-voice browsers
       if (!voice) { warnNoVoice(); return; }
