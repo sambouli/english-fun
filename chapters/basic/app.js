@@ -14,6 +14,24 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;',
 /* ---------- audio: speech synthesis + WebAudio effects ---------- */
 const Speech = (() => {
   let voice = null, ready = false, enabled = true;
+  let lastWarn = 0;
+  function warnNoVoice() {
+    // show a gentle hint instead of failing silently (once every few seconds)
+    const now = Date.now();
+    if (now - lastWarn < 4000) return;
+    lastWarn = now;
+    let el = $('#voice-hint');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'voice-hint';
+      el.style.cssText = 'position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:99;' +
+        'background:#fff7e6;border:2px solid #f5b301;color:#5a4500;border-radius:14px;padding:10px 16px;' +
+        'font-size:15px;max-width:90vw;box-shadow:0 6px 20px rgba(0,0,0,.18);text-align:center';
+      document.body.appendChild(el);
+    }
+    el.textContent = "🔇 Pas de voix anglaise sur ce téléphone. Regarde plus bas ⬇️ l'aide dans le menu ☰.";
+    clearTimeout(el._t); el._t = setTimeout(() => el.remove(), 9000);
+  }
   function pickVoice() {
     if (!('speechSynthesis' in window)) return;
     const vs = window.speechSynthesis.getVoices();
@@ -38,12 +56,13 @@ const Speech = (() => {
     if (!enabled || !('speechSynthesis' in window)) return;
     try {
       if (!voice) pickVoice();   // lazy re-pick: headless/late-voice browsers
+      if (!voice) { warnNoVoice(); return; }
       window.speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(text);
-      u.lang = 'en-GB'; if (voice) u.voice = voice;
+      u.lang = 'en-GB'; u.voice = voice;
       u.rate = opts.rate || 0.85; u.pitch = opts.pitch || 1.05; u.volume = 1;
       window.speechSynthesis.speak(u);
-    } catch (e) { /* silent */ }
+    } catch (e) { warnNoVoice(); }
   }
   return { say, setEnabled: v => { enabled = v; if (!v && 'speechSynthesis' in window) window.speechSynthesis.cancel(); }, isEnabled: () => enabled, voiceName: () => voice && voice.name };
 })();
@@ -868,9 +887,19 @@ const App = (() => {
   function boot() {
     if (!$('#btn-sound')) return;   // hub page loads this file for Speech only
     const t = $('#btn-sound');
-    function paint() { t.textContent = Speech.isEnabled() ? '🔊 Son : oui' : '🔇 Son : non'; }
-    t.addEventListener('click', () => { const v = !Speech.isEnabled(); Speech.setEnabled(v); Store.set('soundOn', v); paint(); if (v) Sfx.click(); });
+    function paint() {
+      if (!Speech.isEnabled()) t.textContent = '🔇 Son : non';
+      else if (!Speech.voiceName()) t.textContent = '🔈 Son : oui (voix absente ?)';
+      else t.textContent = '🔊 Son : oui';
+      t.title = Speech.voiceName() ? ('Voix : ' + Speech.voiceName()) : 'Aucune voix anglaise trouvée sur cet appareil.';
+    }
+    t.addEventListener('click', () => {
+      const v = !Speech.isEnabled(); Speech.setEnabled(v); Store.set('soundOn', v); paint();
+      if (v) { Sfx.click(); Speech.say('Hello! This is English Fun.'); }   // self-test on re-enable
+    });
     Speech.setEnabled(Store.get('soundOn') !== false); paint();
+    // periodic repaint: Android Chrome can register voices late after boot
+    setInterval(paint, 3000);
     $('#btn-home').addEventListener('click', renderMap);
     addEventListener('resize', () => { if (cvs) { cvs.width = innerWidth; cvs.height = innerHeight; } });
     if (EXTRA_LEVELS.length) LEVELS = LEVELS.concat(EXTRA_LEVELS);
