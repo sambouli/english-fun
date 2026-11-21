@@ -29,7 +29,7 @@ const Speech = (() => {
         'font-size:15px;max-width:90vw;box-shadow:0 6px 20px rgba(0,0,0,.18);text-align:center';
       document.body.appendChild(el);
     }
-    el.textContent = "🔇 Pas de voix anglaise sur ce téléphone. Regarde plus bas ⬇️ l'aide dans le menu ☰.";
+    el.textContent = "🔇 Pas de voix anglaise sur ce téléphone — voir l'aide dans le README du jeu (installer une voix TTS).";
     clearTimeout(el._t); el._t = setTimeout(() => el.remove(), 9000);
   }
   function pickVoice() {

@@ -31,3 +31,23 @@ Questions reshuffle on every replay so repetition is never identical.
 
 `app.js` exposes `window.__currentSet` / `window.__visibleItem` (the live answer keys
 of the current exercise) — used by automated playthrough tests; harmless in normal use.
+
+## Si les mots ne sont pas prononcés sur le téléphone
+
+Le jeu utilise la **voix anglaise déjà installée sur le téléphone**. Pas de voix = pas de
+prononciation (les bips de jeu fonctionnent quand même). Le bouton 🔊 en haut à droite
+affiche « voix absente » si c'est le cas. Pour installer une voix :
+
+### Samsung / Android
+1. **Paramètres → Sons et vibration → Sortie vocale** (ou cherche « Sortie vocale »)
+2. Choisis **Google Text-to-Speech** (installe-le depuis le Play Store si absent)
+3. Play Store → Google Text-to-Speech → ⚙️ Paramètres → **Télécharger des voix** →
+   **English (United Kingdom)**
+4. Rouvre le jeu, tape sur un mot 🔊 (redémarre le téléphone si besoin)
+
+Si ça résiste : Chrome ⋮ → Réglages → Accessibilité → *Services de synthèse vocale* —
+vérifie qu'un moteur TTS est activé.
+
+### iPhone / iPad
+Réglages → Accessibilité → Parole → Contenus parlés → Voix → Anglais (GB) →
+télécharge une voix améliorée.
