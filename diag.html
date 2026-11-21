@@ -18,6 +18,7 @@
 <button id="b1">1️⃣ Lister les voix</button>
 <button id="b2">2️⃣ Dire « Hello! My name is English Fun! »</button>
 <button id="b3">3️⃣ Redire SANS annuler avant</button>
+<button id="b4">4️⃣ Test son WebAudio (bip)</button>
 <div id="log">En attente…</div>
 <script>
 const log = document.getElementById('log');
@@ -52,6 +53,17 @@ function speakIt(txt, cancelFirst) {
 }
 document.getElementById('b2').onclick = () => speakIt('Hello! My name is English Fun!', true);
 document.getElementById('b3').onclick = () => speakIt('Hello! My name is English Fun!', false);
+document.getElementById('b4').onclick = () => {
+  try {
+    const ac = new (window.AudioContext || window.webkitAudioContext)();
+    ac.resume().then(() => {
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.connect(g); g.connect(ac.destination);
+      o.frequency.value = 660; g.gain.value = 0.2;
+      o.start(); setTimeout(() => { o.stop(); say('🔔 bip WebAudio joué (state=' + ac.state + ')', 'ok'); }, 350);
+    });
+  } catch (e) { say('❌ WebAudio: ' + e, 'bad'); }
+};
 // voices populate late on Android
 setTimeout(() => { const n = window.speechSynthesis.getVoices().length; say('(auto) ' + n + ' voix détectées au chargement'); }, 1500);
 </script>
