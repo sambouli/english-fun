@@ -417,7 +417,15 @@ const EXERCISES = {
 /* ============================================================
    ENGINE
    ============================================================ */
-const LEVELS = LESSONS.map((l, i) => ({ id: l.id, title: l.title, icon: l.icon, sub: l.sub, color: l.color, lesson: l, exos: EXERCISES[l.id] }));
+/* Chapter extension points (used by chapters/adventure):
+   a later script may call registerChapter({ lessons, exercises }) before boot,
+   and set CHAPTER_GATE = '<level id>' to lock level 1 until that level is starred. */
+const EXTRA_LEVELS = [];
+let CHAPTER_GATE = window.CHAPTER_GATE || null;
+function registerChapter(ch) {
+  ch.lessons.forEach(l => EXTRA_LEVELS.push({ id: l.id, title: l.title, icon: l.icon, sub: l.sub, color: l.color, lesson: l, exos: ch.exercises[l.id] }));
+}
+let LEVELS = LESSONS.map((l, i) => ({ id: l.id, title: l.title, icon: l.icon, sub: l.sub, color: l.color, lesson: l, exos: EXERCISES[l.id] }));
 
 const App = (() => {
   let state = { level: 0, view: 'map', session: null };
@@ -426,6 +434,7 @@ const App = (() => {
   function renderMap() {
     const wrap = $('#screen');
     const total = Store.get('totalStars') || 0;
+    const firstLockedGlobally = CHAPTER_GATE && Store.stars(CHAPTER_GATE) === 0 && Store.stars(LEVELS[0].id) === 0;
     wrap.innerHTML = `
       <div class="hero">
         <div class="hero-emoji">🦉</div>
@@ -437,7 +446,8 @@ const App = (() => {
       <div class="level-grid">
         ${LEVELS.map((lv, i) => {
       const st = Store.stars(lv.id);
-      const locked = i > 0 && Store.stars(LEVELS[i - 1].id) === 0 && st === 0;
+      const locked = i === 0 ? !!firstLockedGlobally
+        : (i > 0 && Store.stars(LEVELS[i - 1].id) === 0 && st === 0);
       return `
           <button class="level-card ${lv.color} ${locked ? 'locked' : ''}" data-level="${i}" ${locked ? 'disabled' : ''}>
             <span class="lc-icon">${locked ? '🔒' : lv.icon}</span>
@@ -513,7 +523,8 @@ const App = (() => {
     return '';
   }
   const stripTags = s => String(s).replace(/<[^>]+>/g, '').replace(/&amp;/g, '&');
-  function catTitle(c) { return ({ greetings: 'Salutations 👋', people: 'Les personnes 🧑‍🤝‍🧑', animals: 'Les animaux 🐾', colors: 'Les couleurs 🎨', numbers: 'Les nombres 🔢', family_home: 'À la maison 🏠', food: 'À table 🍎', body: 'Le corps 🙋', play: 'Pour jouer 🧸', nature: 'La nature 🌳' }[c] || ''); }
+  const CAT_TITLES = { greetings: 'Salutations 👋', people: 'Les personnes 🧑‍🤝‍🧑', animals: 'Les animaux 🐾', colors: 'Les couleurs 🎨', numbers: 'Les nombres 🔢', family_home: 'À la maison 🏠', food: 'À table 🍎', body: 'Le corps 🙋', play: 'Pour jouer 🧸', nature: 'La nature 🌳' };
+  function catTitle(c) { if (CAT_TITLES[c]) return CAT_TITLES[c]; return c ? (c.charAt(0).toUpperCase() + c.slice(1)) : ''; }
 
   function wireBlocks(root) {
     $$('[data-say]', root).forEach(el => el.addEventListener('click', () => { Sfx.click(); Speech.say(el.dataset.say); }));
@@ -854,7 +865,7 @@ const App = (() => {
     Speech.setEnabled(Store.get('soundOn') !== false); paint();
     $('#btn-home').addEventListener('click', renderMap);
     addEventListener('resize', () => { if (cvs) { cvs.width = innerWidth; cvs.height = innerHeight; } });
-    const last = Store.get('lastLevel') || 0;
+    if (EXTRA_LEVELS.length) LEVELS = LEVELS.concat(EXTRA_LEVELS);
     renderMap();
   }
   return { boot, openLevel, renderMap };
