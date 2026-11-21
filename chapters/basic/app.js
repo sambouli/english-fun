@@ -52,6 +52,37 @@ const Speech = (() => {
     // some browsers populate voices late; retry a few times
     [300, 900, 2000].forEach(ms => setTimeout(pickVoice, ms));
   }
+  function speakNow(text, opts, v, attempt) {
+    // NOTE: deliberately NO cancel() immediately before speak() — on several Android
+    // TTS engines cancel() races the next utterance and it dies silently (synthesis-failed).
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'en-GB'; u.voice = v;
+    u.rate = opts.rate || 0.85; u.pitch = opts.pitch || 1.05; u.volume = 1;
+    let spoke = false;
+    u.onstart = () => { spoke = true; };
+    u.onerror = (ev) => {
+      console.warn('[speech] error:', ev && ev.error, text);
+      if (!spoke) retry(text, opts, attempt);
+    };
+    u.onend = () => { if (!spoke) { console.warn('[speech] ended without starting:', text); retry(text, opts, attempt); } };
+    try { window.speechSynthesis.speak(u); }
+    catch (e) { if (!spoke) retry(text, opts, attempt); }
+    setTimeout(() => { if (!spoke && !window.speechSynthesis.speaking) retry(text, opts, attempt); }, 900);
+  }
+  function retry(text, opts, attempt) {
+    if (attempt >= 1) { warnNoVoice(); return; }          // one fallback pass only
+    // fallback: drop the explicit voice and let the engine pick its default english voice
+    const dv = null;
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'en-GB';
+    u.rate = opts.rate || 0.85; u.pitch = opts.pitch || 1.05; u.volume = 1;
+    let spoke = false;
+    u.onstart = () => { spoke = true; };
+    u.onerror = () => { if (!spoke) warnNoVoice(); };
+    u.onend = () => { if (!spoke) warnNoVoice(); };
+    try { window.speechSynthesis.speak(u); } catch (e) { warnNoVoice(); }
+    setTimeout(() => { if (!spoke && !window.speechSynthesis.speaking) warnNoVoice(); }, 900);
+  }
   function say(text, opts) {
     opts = opts || {};
     if (!enabled) return;
@@ -59,16 +90,7 @@ const Speech = (() => {
     try {
       if (!voice) pickVoice();   // lazy re-pick: headless/late-voice browsers
       if (!voice) { warnNoVoice(); return; }
-      window.speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(text);
-      u.lang = 'en-GB'; u.voice = voice;
-      u.rate = opts.rate || 0.85; u.pitch = opts.pitch || 1.05; u.volume = 1;
-      let spoke = false;
-      u.onstart = () => { spoke = true; };
-      u.onerror = (ev) => { console.warn('[speech] error:', ev.error, text); if (!spoke) warnNoVoice(); };
-      u.onend = () => { if (!spoke) { console.warn('[speech] ended without starting:', text); warnNoVoice(); } };
-      window.speechSynthesis.speak(u);
-      setTimeout(() => { if (!spoke && !window.speechSynthesis.speaking) warnNoVoice(); }, 900);
+      speakNow(text, opts, voice, 0);
     } catch (e) { warnNoVoice(); }
   }
   return { say, setEnabled: v => { enabled = v; if (!v && 'speechSynthesis' in window) window.speechSynthesis.cancel(); }, isEnabled: () => enabled, voiceName: () => voice && voice.name };
