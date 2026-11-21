@@ -13,6 +13,78 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;',
 
 /* ---------- audio: speech synthesis + WebAudio effects ---------- */
 const BUILD = '@@BUILD@@';   // replaced by the Pages workflow at deploy time
+/* ---- online voice fallback (Google translate TTS), cached forever in IndexedDB ---- */
+const NetVoice = (() => {
+  const DB = 'english-fun-tts', TBL = 'clips';
+  let dbp = null;
+  function db() {
+    if (dbp) return dbp;
+    dbp = new Promise(res => {
+      try {
+        const rq = indexedDB.open(DB, 1);
+        rq.onupgradeneeded = () => rq.result.createObjectStore(TBL);
+        rq.onsuccess = () => res(rq.result);
+        rq.onerror = () => res(null);
+      } catch (e) { res(null); }
+    });
+    return dbp;
+  }
+  async function get(key) {
+    const d = await db(); if (!d) return null;
+    return new Promise(res => {
+      try {
+        const r = d.transaction(TBL).objectStore(TBL).get(key);
+        r.onsuccess = () => res(r.result || null); r.onerror = () => res(null);
+      } catch (e) { res(null); }
+    });
+  }
+  async function put(key, blob) {
+    const d = await db(); if (!d) return;
+    try { d.transaction(TBL, 'readwrite').objectStore(TBL).put(blob, key); } catch (e) { /* quota */ }
+  }
+  let pool = 0;   // tiny concurrency guard
+  function urlFor(text, tl) {
+    return 'https://code.responsivevoice.org/getvoice.php?t=' + encodeURIComponent(text.slice(0, 200)) +
+      '&tl=' + encodeURIComponent(tl) + '&svcv=2&svcvv=1';
+  }
+  async function playOne(src, cached, key, tl) {
+    try {
+      const a = new Audio(src);
+      a.volume = 1;
+      await new Promise((res, rej) => {
+        a.oncanplaythrough = () => res();
+        a.onerror = () => rej(new Error('audio load'));
+        setTimeout(() => a.ended ? res() : rej(new Error('timeout')), 6000);
+        a.play().catch(rej);
+      });
+      return true;
+    } catch (e) { return false; }
+    finally { if (cached) setTimeout(() => URL.revokeObjectURL(src), 30000); }
+  }
+  async function play(text, tl) {
+    tl = tl || 'en-GB';
+    const key = tl + '::' + text.toLowerCase().trim();
+    const cached = await get(key);
+    const ok = await playOne(cached ? URL.createObjectURL(cached) : urlFor(text, tl), cached, key, tl);
+    if (ok) {
+      if (!cached && pool <= 3) {   // first streamed play: store clip for offline reuse
+        pool++;
+        fetch(urlFor(text, tl)).then(r => r.ok ? r.blob() : null).then(b => {
+          if (b && b.size > 500) put(key, b);
+        }).catch(() => {}).finally(() => pool--);
+      }
+      return true;
+    }
+    if (tl !== 'en-GB') {           // unknown locale? retry with the base one
+      const k2 = 'en-GB::' + text.toLowerCase().trim();
+      const c2 = await get(k2);
+      return playOne(c2 ? URL.createObjectURL(c2) : urlFor(text, 'en-GB'), c2, k2, 'en-GB');
+    }
+    return false;
+  }
+  return { play };
+})();
+
 const Speech = (() => {
   let voice = null, ready = false, enabled = true;
   let altVoice = null;                       // second voice (for dialogues)
@@ -62,6 +134,20 @@ const Speech = (() => {
     [300, 900, 2000].forEach(ms => setTimeout(pickVoice, ms));
   }
   let lastSpokeAt = 0;                       // when ANY utterance last really started
+  const onlineBusy = new Set();              // words currently being played/fetched online
+  const failCount = Object.create(null);     // word -> consecutive local-engine failures
+  function onlineFallback(text) {
+    if (typeof text !== 'string' || !text.trim()) return;
+    // engine refused everything: use the cached online voice instead of warning right away
+    const k = text.toLowerCase().trim();
+    if (onlineBusy.has(k)) return;           // one in-flight attempt per word
+    onlineBusy.add(k);
+    const acc = accent;   // capture: user may toggle mid-play
+    NetVoice.play(text, acc === 'us' ? 'en-US' : 'en-GB').then(ok => {
+      onlineBusy.delete(k);
+      if (ok) { lastSpokeAt = Date.now(); } else { maybeWarn('local+online both failed'); }
+    }).catch(() => { onlineBusy.delete(k); maybeWarn('online threw'); });
+  }
   function maybeWarn(why) {
     // desktop engines can be slow to fire onstart; never cry wolf shortly after real speech
     if (Date.now() - lastSpokeAt < 6000) return;
@@ -69,23 +155,39 @@ const Speech = (() => {
     warnNoVoice();
   }
   function speakNow(text, opts, v, attempt) {
+    attempt = attempt || 0;
+    // HARD GUARD: never hand a non-string to the engine. (Headless/automated browsers have
+    // been observed receiving speak(null) from this path; an utterance with text=null fires
+    // neither onstart nor onerror on some engines, which stalls the whole fallback chain.)
+    if (typeof text !== 'string' || !text.trim()) { console.warn('[speech] empty text, skipped'); return; }
     // NOTE: deliberately NO cancel() immediately before speak() — on several Android
     // TTS engines cancel() races the next utterance and it dies silently (synthesis-failed).
     const u = new SpeechSynthesisUtterance(text);
-    u.lang = 'en-GB'; u.voice = v;
+    u.lang = 'en-GB';
+    // Voice objects can go stale when the Android TTS service restarts — assigning a dead
+    // one throws (or makes speak fail with synthesis-failed). Fall back to lang-only speech.
+    if (v) { try { u.voice = v; } catch (e) { u.voice = null; } }
     u.rate = opts.rate || 0.85; u.pitch = opts.pitch || 1.05; u.volume = 1;
     let spoke = false;
-    u.onstart = () => { spoke = true; lastSpokeAt = Date.now(); };
+    u.onstart = () => { spoke = true; lastSpokeAt = Date.now(); failCount[text.toLowerCase().trim()] = 0; };
     u.onerror = (ev) => {
-      if (!spoke) retry(text, opts, attempt);
+      if (!spoke) retry(text, opts, attempt + 1);
     };
-    u.onend = () => { if (!spoke) retry(text, opts, attempt); };
+    u.onend = () => { if (!spoke) retry(text, opts, attempt + 1); };
     try { window.speechSynthesis.speak(u); }
-    catch (e) { if (!spoke) retry(text, opts, attempt); }
-    setTimeout(() => { if (!spoke && !window.speechSynthesis.speaking) retry(text, opts, attempt); }, 1600);
+    catch (e) { if (!spoke) retry(text, opts, attempt + 1); }
+    setTimeout(() => { if (!spoke && !window.speechSynthesis.speaking) retry(text, opts, attempt + 1); }, 1600);
   }
   function retry(text, opts, attempt) {
-    if (attempt >= 1) { maybeWarn('gave up after retry'); return; }   // one fallback pass only
+    if (attempt >= 1) {
+      const k = text.toLowerCase().trim();
+      failCount[k] = (failCount[k] || 0) + 1;
+      onlineFallback(text); return;                        // one fallback pass, then online
+    }
+    // Re-poll the voice list once: after a TTS-service restart the cached voice objects are
+    // dead and re-reading getVoices() returns fresh ones. If the list is still empty, keep the
+    // OLD cached voice — some engines report synthesis-failed for lang-only utterances.
+    try { const n = window.speechSynthesis.getVoices().length; if (n) pickVoice(); } catch (e) {}
     // fallback: drop the explicit voice and let the engine pick its default english voice
     const u = new SpeechSynthesisUtterance(text);
     u.lang = 'en-GB';
@@ -103,7 +205,9 @@ const Speech = (() => {
     if (!('speechSynthesis' in window)) { warnNoVoice(); return; }
     try {
       if (!voice) pickVoice();   // lazy re-pick: headless/late-voice browsers
-      if (!voice) { warnNoVoice(); return; }
+      if (!voice) { onlineFallback(text); return; }
+      // engine repeatedly refuses this exact word? stop wasting ~3s on it — play online directly
+      if ((failCount[text.toLowerCase().trim()] || 0) >= 2 && enabled) { onlineFallback(text); return; }
       speakNow(text, opts, opts.alt ? (altVoice || voice) : voice, 0);
     } catch (e) { warnNoVoice(); }
   }
