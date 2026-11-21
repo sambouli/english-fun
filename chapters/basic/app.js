@@ -15,6 +15,14 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;',
 const BUILD = '@@BUILD@@';   // replaced by the Pages workflow at deploy time
 const Speech = (() => {
   let voice = null, ready = false, enabled = true;
+  let altVoice = null;                       // second voice (for dialogues)
+  let accent = 'en';                         // 'en' = prefer UK, 'us' = prefer US
+  function pick(list, prefUS) {
+    const rx = prefUS === 'us' ? /en[-_]US/i : /en[-_]GB/i;
+    return list.find(v => rx.test(v.lang) && /female|kate|serena|libby|sonia|zira|samantha|aria|jenny|google us english|google uk english female/i.test(v.name))
+      || list.find(v => rx.test(v.lang))
+      || list.find(v => /^en/i.test(v.lang)) || null;
+  }
   let lastWarn = 0;
   function warnNoVoice() {
     // show a gentle hint instead of failing silently (once every few seconds)
@@ -35,10 +43,11 @@ const Speech = (() => {
   }
   function pickVoice() {
     if (!('speechSynthesis' in window)) return;
-    const vs = window.speechSynthesis.getVoices();
-    voice = vs.find(v => /en[-_]GB/i.test(v.lang) && /female|kate|serena|libby|sonia/i.test(v.name))
-      || vs.find(v => /en[-_]GB/i.test(v.lang))
-      || vs.find(v => /^en/i.test(v.lang)) || null;
+    const vs = window.speechSynthesis.getVoices().filter(v => /^en/i.test(v.lang));
+    voice = pick(vs, accent);
+    // second distinct voice for dialogues: opposite accent if available, else another name
+    const others = vs.filter(v => !voice || v.name !== voice.name);
+    altVoice = pick(others, accent === 'us' ? 'en' : 'us') || others[0] || null;
     ready = !!voice;
     const el = $('#voice-status');
     if (el) {
@@ -90,10 +99,11 @@ const Speech = (() => {
     try {
       if (!voice) pickVoice();   // lazy re-pick: headless/late-voice browsers
       if (!voice) { warnNoVoice(); return; }
-      speakNow(text, opts, voice, 0);
+      speakNow(text, opts, opts.alt ? (altVoice || voice) : voice, 0);
     } catch (e) { warnNoVoice(); }
   }
-  return { say, setEnabled: v => { enabled = v; if (!v && 'speechSynthesis' in window) window.speechSynthesis.cancel(); }, isEnabled: () => enabled, voiceName: () => voice && voice.name };
+  function setAccent(a) { accent = a; Store.set('accent', a); pickVoice(); }
+  return { say, setEnabled: v => { enabled = v; if (!v && 'speechSynthesis' in window) window.speechSynthesis.cancel(); }, isEnabled: () => enabled, voiceName: () => voice && voice.name, altVoiceName: () => altVoice && altVoice.name, setAccent, getAccent: () => accent };
 })();
 
 const Sfx = (() => {
@@ -167,7 +177,7 @@ const VOCAB = {
   numbers: [['one', '1️⃣', 'un'], ['two', '2️⃣', 'deux'], ['three', '3️⃣', 'trois'], ['four', '4️⃣', 'quatre'], ['five', '5️⃣', 'cinq'], ['six', '6️⃣', 'six'], ['seven', '7️⃣', 'sept'], ['eight', '8️⃣', 'huit'], ['nine', '9️⃣', 'neuf'], ['ten', '🔟', 'dix']],
   family_home: [
     ['house', '🏠', 'maison'], ['door', '🚪', 'porte'], ['window', '🪟', 'fenêtre'], ['bed', '🛏️', 'lit'],
-    ['table', '🪑', 'table'], ['book', '📖', 'livre'], ['bag', '🎒', 'sac'], ['key', '🔑', 'clé'],
+    ['table', '🍽️', 'table'], ['book', '📖', 'livre'], ['bag', '🎒', 'sac'], ['key', '🔑', 'clé'],
     ['garden', '🌳', 'jardin'], ['kitchen', '🍳', 'cuisine']
   ],
   food: [
@@ -311,7 +321,7 @@ function mkChoice(qs) {
 }
 function mkOrder(items) {
   // chips are stripped of punctuation: "eggs?" becomes chip "eggs"; comparison ignores punctuation anyway
-  return { type: 'order', prompt: 'Remets les mots dans le bon ordre 🧱', items: items.map(it => ({ words: it.en.split(' ').map(w => w.replace(/[?!.]/g, '')), answer: it.en, fr: it.fr, speak: it.en })) };
+  return { type: 'order', prompt: 'Remets les mots dans le bon ordre 🧱', items: items.map(it => ({ words: it.en.split(' ').map(w => { const c = w.replace(/[?!.]/g, ''); return c.charAt(0) === c.charAt(0).toUpperCase() ? c.toLowerCase() : c; }), answer: it.en, fr: it.fr, speak: it.en })) };
 }
 function mkBuild(items) {
   return { type: 'build', prompt: 'Fabrique la phrase anglaise avec les briques 🏗️', items: items.map(it => ({ target: it.en, fr: it.fr, speak: it.en, extra: it.extra || [] })) };
@@ -572,8 +582,8 @@ const App = (() => {
         </button>`).join('')}</div></div>`;
     }
     if (b.kind === 'dialogue') {
-      return `<div class="rule"><h3>${esc(b.title)}</h3><div class="dlg">${b.lines.map(l => `
-        <button class="dlg-row" data-say="${esc(l[1])}"><span class="dlg-who">${l[0]}</span><span class="dlg-bubble"><b>${esc(l[1])}</b><i>${esc(l[2])}</i></span><span class="pb-sp">🔊</span></button>`).join('')}</div></div>`;
+      return `<div class="rule"><h3>${esc(b.title)}</h3><div class="dlg">${b.lines.map((l, li) => `
+        <button class="dlg-row" data-say="${esc(l[1])}" ${li % 2 ? 'data-alt="1"' : ''}><span class="dlg-who">${l[0]}</span><span class="dlg-bubble"><b>${esc(l[1])}</b><i>${esc(l[2])}</i></span><span class="pb-sp">🔊</span></button>`).join('')}</div></div>`;
     }
     return '';
   }
@@ -582,7 +592,7 @@ const App = (() => {
   function catTitle(c) { if (CAT_TITLES[c]) return CAT_TITLES[c]; return c ? (c.charAt(0).toUpperCase() + c.slice(1)) : ''; }
 
   function wireBlocks(root) {
-    $$('[data-say]', root).forEach(el => el.addEventListener('click', () => { Sfx.click(); Speech.say(el.dataset.say); }));
+    $$('[data-say]', root).forEach(el => el.addEventListener('click', () => { Sfx.click(); Speech.say(el.dataset.say, { alt: el.dataset.alt === '1' }); }));
   }
 
   /* ---------- game session ---------- */
@@ -664,8 +674,8 @@ const App = (() => {
   function playMatch(root, set) {
     const lefts = shuffle(set.pairs), rights = shuffle(set.pairs);
     root.innerHTML = `<div class="match-wrap">
-      <div class="match-col">${lefts.map(p => `<button class="tile tile-en" data-side="L" data-key="${esc(p.left)}"><span class="t-emoji">${p.emoji}</span>${esc(p.left)}<span class="pb-sp">🔊</span></button>`).join('')}</div>
-      <div class="match-col">${rights.map(p => `<button class="tile tile-fr" data-side="R" data-key="${esc(p.right)}">${esc(p.right)}</button>`).join('')}</div>
+      <div class="match-col">${lefts.map(p => `<button class="tile tile-en" data-side="L" data-key="${esc(p.left)}">${esc(p.left)}<span class="pb-sp">🔊</span></button>`).join('')}</div>
+      <div class="match-col">${rights.map(p => `<button class="tile tile-fr" data-side="R" data-key="${esc(p.right)}"><span class="t-emoji">${p.emoji}</span>${esc(p.right)}</button>`).join('')}</div>
     </div>`;
     let sel = null;
     $$('.tile', root).forEach(t => t.addEventListener('click', () => {
@@ -818,7 +828,7 @@ const App = (() => {
     function draw() {
       if (i >= set.items.length) return finishSet();
       const it = set.items[i]; markVisible(it);
-      const words = it.target.split(' ');
+      const words = it.target.split(' ').map(w => w.charAt(0) === w.charAt(0).toUpperCase() ? w.toLowerCase() : w);
       const bank = shuffle(words.concat(shuffle(it.extra).slice(0, Math.min(3, it.extra.length))));
       root.innerHTML = `<div class="q-card">
         <p class="q-fr">🇫🇷 ${esc(it.fr)}</p>
@@ -927,6 +937,13 @@ const App = (() => {
       if (v) { Sfx.click(); Speech.say('Hello! This is English Fun.'); }   // self-test on re-enable
     });
     Speech.setEnabled(Store.get('soundOn') !== false); paint();
+    if (Store.get('accent')) Speech.setAccent(Store.get('accent'));
+    const ab = document.createElement('button');
+    ab.className = 'btn sound'; ab.id = 'btn-accent';
+    t.insertAdjacentElement('beforebegin', ab);
+    function paintAcc() { ab.textContent = Speech.getAccent() === 'us' ? '🇺🇸 US' : '🇬🇧 UK'; ab.title = 'Changer l’accent de la voix'; }
+    ab.addEventListener('click', () => { Speech.setAccent(Speech.getAccent() === 'us' ? 'en' : 'us'); paintAcc(); Sfx.click(); Speech.say('Hello! I speak English now.'); });
+    paintAcc();
     const foot = document.querySelector('.appfoot');
     if (foot && BUILD.indexOf('@@') === -1) { const s = document.createElement('span'); s.textContent = ' · v' + BUILD; foot.appendChild(s); }
     // periodic repaint: Android Chrome can register voices late after boot

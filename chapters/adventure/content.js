@@ -15,7 +15,7 @@ Object.assign(CHIP, {
   'clock': '🕐', 'o’clock': '🕐', 'half': '➗', 'past': '⏩', 'breakfast': '🥣',
   'lunch': '🥪', 'dinner': '🍽️', 'warm': '🌤️', 'cool': '🍃', 'snowy': '🌨️', 'windy': '💨', 'cloudy': '☁️',
   'umbrella': '☂️', 'coat': '🧥', 'school': '🏫', 'classroom': '🏫', 'pupil': '🧒', 'pencil': '✏️', 'pen': '🖊️',
-  'ruler': '📏', 'eraser': '🧽', 'crayon': '🖍️', 'scissors': '✂️', 'glue': '🧴', 'desk': '🪑', 'playground': '🛝',
+  'ruler': '📏', 'eraser': '🧽', 'crayon': '🖍️', 'scissors': '✂️', 'glue': '🧴', 'desk': '🗄️', 'playground': '🛝',
   'library': '📚', 'homework': '📝', 'exam': '📄', 'question': '❓', 'answer': '💡',
   'shop': '🏪', 'bakery': '🥐', 'park': '🛝', 'hospital': '🏥', 'pharmacy': '💊', 'station': '🚉',
   'beach': '🏖️', 'mountain': '⛰️', 'left': '⬅️', 'right': '➡️', 'straight': '⏫', 'near': '📍', 'far': '🔭',
@@ -58,7 +58,7 @@ VOCAB.school = [
   ['school', '🏫', 'école'], ['classroom', '🏫', 'salle de classe'], ['teacher', '🧑‍🏫', 'maître / maîtresse'],
   ['pupil', '🧒', 'élève'], ['pencil', '✏️', 'crayon'], ['pen', '🖊️', 'stylo'], ['ruler', '📏', 'règle'],
   ['eraser', '🧽', 'gomme'], ['crayon', '🖍️', 'crayon de couleur'], ['scissors', '✂️', 'ciseaux'],
-  ['glue', '🧴', 'colle'], ['notebook', '📓', 'cahier'], ['backpack', '🎒', 'cartable'], ['desk', '🪑', 'table'],
+  ['glue', '🧴', 'colle'], ['notebook', '📓', 'cahier'], ['backpack', '🎒', 'cartable'], ['desk', '🗄️', 'table'],
   ['playground', '🛝', 'cour de récréation'], ['library', '📚', 'bibliothèque'], ['homework', '📝', 'devoirs'],
   ['exam', '📄', 'examen'], ['question', '❓', 'question'], ['answer', '💡', 'réponse']
 ];
