@@ -61,6 +61,13 @@ const Speech = (() => {
     // some browsers populate voices late; retry a few times
     [300, 900, 2000].forEach(ms => setTimeout(pickVoice, ms));
   }
+  let lastSpokeAt = 0;                       // when ANY utterance last really started
+  function maybeWarn(why) {
+    // desktop engines can be slow to fire onstart; never cry wolf shortly after real speech
+    if (Date.now() - lastSpokeAt < 6000) return;
+    console.warn('[speech]', why);
+    warnNoVoice();
+  }
   function speakNow(text, opts, v, attempt) {
     // NOTE: deliberately NO cancel() immediately before speak() — on several Android
     // TTS engines cancel() races the next utterance and it dies silently (synthesis-failed).
@@ -68,29 +75,27 @@ const Speech = (() => {
     u.lang = 'en-GB'; u.voice = v;
     u.rate = opts.rate || 0.85; u.pitch = opts.pitch || 1.05; u.volume = 1;
     let spoke = false;
-    u.onstart = () => { spoke = true; };
+    u.onstart = () => { spoke = true; lastSpokeAt = Date.now(); };
     u.onerror = (ev) => {
-      console.warn('[speech] error:', ev && ev.error, text);
       if (!spoke) retry(text, opts, attempt);
     };
-    u.onend = () => { if (!spoke) { console.warn('[speech] ended without starting:', text); retry(text, opts, attempt); } };
+    u.onend = () => { if (!spoke) retry(text, opts, attempt); };
     try { window.speechSynthesis.speak(u); }
     catch (e) { if (!spoke) retry(text, opts, attempt); }
-    setTimeout(() => { if (!spoke && !window.speechSynthesis.speaking) retry(text, opts, attempt); }, 900);
+    setTimeout(() => { if (!spoke && !window.speechSynthesis.speaking) retry(text, opts, attempt); }, 1600);
   }
   function retry(text, opts, attempt) {
-    if (attempt >= 1) { warnNoVoice(); return; }          // one fallback pass only
+    if (attempt >= 1) { maybeWarn('gave up after retry'); return; }   // one fallback pass only
     // fallback: drop the explicit voice and let the engine pick its default english voice
-    const dv = null;
     const u = new SpeechSynthesisUtterance(text);
     u.lang = 'en-GB';
     u.rate = opts.rate || 0.85; u.pitch = opts.pitch || 1.05; u.volume = 1;
     let spoke = false;
-    u.onstart = () => { spoke = true; };
-    u.onerror = () => { if (!spoke) warnNoVoice(); };
-    u.onend = () => { if (!spoke) warnNoVoice(); };
-    try { window.speechSynthesis.speak(u); } catch (e) { warnNoVoice(); }
-    setTimeout(() => { if (!spoke && !window.speechSynthesis.speaking) warnNoVoice(); }, 900);
+    u.onstart = () => { spoke = true; lastSpokeAt = Date.now(); };
+    u.onerror = () => { if (!spoke) maybeWarn('fallback voice failed'); };
+    u.onend = () => { if (!spoke) maybeWarn('fallback never started'); };
+    try { window.speechSynthesis.speak(u); } catch (e) { maybeWarn('fallback threw'); }
+    setTimeout(() => { if (!spoke && !window.speechSynthesis.speaking) maybeWarn('fallback silent'); }, 1600);
   }
   function say(text, opts) {
     opts = opts || {};
@@ -499,8 +504,9 @@ const App = (() => {
     const total = Store.get('totalStars') || 0;
     const range = chapterRange() || [0, LEVELS.length];
     const visible = LEVELS.slice(range[0], range[1]);
+    const parentOpen = Store.get('parentOpen') === true;   // parent toggle: play any level
     const gate = chapterGate();
-    const firstLockedGlobally = gate && Store.stars(gate) === 0 && Store.stars(visible[0].id) === 0;
+    const firstLockedGlobally = !parentOpen && gate && Store.stars(gate) === 0 && Store.stars(visible[0].id) === 0;
     wrap.innerHTML = `
       <div class="hero">
         <div class="hero-emoji">🦉</div>
@@ -512,8 +518,9 @@ const App = (() => {
       <div class="level-grid">
         ${visible.map((lv, i) => {
       const st = Store.stars(lv.id);
-      const locked = i === 0 ? !!firstLockedGlobally
-        : (i > 0 && Store.stars(visible[i - 1].id) === 0 && st === 0);
+      const locked = parentOpen ? false
+        : (i === 0 ? !!firstLockedGlobally
+        : (i > 0 && Store.stars(visible[i - 1].id) === 0 && st === 0));
       return `
           <button class="level-card ${lv.color} ${locked ? 'locked' : ''}" data-level="${range[0] + i}" ${locked ? 'disabled' : ''}>
             <span class="lc-icon">${locked ? '🔒' : lv.icon}</span>
@@ -526,9 +533,20 @@ const App = (() => {
     }).join('')}
       </div>
       <div class="map-foot">
+        <button class="btn ghost" id="btn-parent">${parentOpen ? '🔓 Tout déverrouillé' : '🔒 Mode parent'}</button>
         <button class="btn ghost" id="btn-reset">🧹 Recommencer à zéro</button>
       </div>`;
     $$('.level-card', wrap).forEach(b => b.addEventListener('click', () => openLevel(+b.dataset.level, 'lesson')));
+    $('#btn-parent').addEventListener('click', () => {
+      if (Store.get('parentOpen') !== true) {
+        const ok = confirm('Mode parent : déverrouille tous les niveaux et tous les chapitres (pour reprendre sur un autre téléphone).\n\nTu es un adulte ?');
+        if (!ok) return;
+        Store.set('parentOpen', true);
+      } else {
+        Store.set('parentOpen', false);
+      }
+      renderMap();
+    });
     $('#btn-reset').addEventListener('click', () => {
       if (confirm('Effacer toute ta progression et toutes tes étoiles ?')) { Store.reset(); renderMap(); }
     });
