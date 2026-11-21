@@ -262,7 +262,8 @@ function mkChoice(qs) {
   return { type: 'choice', prompt: 'Choisis la bonne réponse ✅', items: qs.map(q => Object.assign({}, q, { options: shuffle(q.options) })) };
 }
 function mkOrder(items) {
-  return { type: 'order', prompt: 'Remets les mots dans le bon ordre 🧱', items: items.map(it => ({ words: it.en.split(' '), answer: it.en, fr: it.fr, speak: it.en })) };
+  // chips are stripped of punctuation: "eggs?" becomes chip "eggs"; comparison ignores punctuation anyway
+  return { type: 'order', prompt: 'Remets les mots dans le bon ordre 🧱', items: items.map(it => ({ words: it.en.split(' ').map(w => w.replace(/[?!.]/g, '')), answer: it.en, fr: it.fr, speak: it.en })) };
 }
 function mkBuild(items) {
   return { type: 'build', prompt: 'Fabrique la phrase anglaise avec les briques 🏗️', items: items.map(it => ({ target: it.en, fr: it.fr, speak: it.en, extra: it.extra || [] })) };
@@ -421,7 +422,11 @@ const EXERCISES = {
    a later script may call registerChapter({ lessons, exercises }) before boot,
    and set CHAPTER_GATE = '<level id>' to lock level 1 until that level is starred. */
 const EXTRA_LEVELS = [];
-let CHAPTER_GATE = window.CHAPTER_GATE || null;
+function chapterGate() { return window.CHAPTER_GATE || null; }
+// NOTE: read window.* at CALL time (boot), never at parse time — the chapter's
+// <script> that sets them runs AFTER this file, so a const here would be null forever.
+function chapterRange() { return window.CHAPTER_RANGE || null; }
+function chapterTitle() { return window.CHAPTER_TITLE || null; }
 function registerChapter(ch) {
   ch.lessons.forEach(l => EXTRA_LEVELS.push({ id: l.id, title: l.title, icon: l.icon, sub: l.sub, color: l.color, lesson: l, exos: ch.exercises[l.id] }));
 }
@@ -434,22 +439,25 @@ const App = (() => {
   function renderMap() {
     const wrap = $('#screen');
     const total = Store.get('totalStars') || 0;
-    const firstLockedGlobally = CHAPTER_GATE && Store.stars(CHAPTER_GATE) === 0 && Store.stars(LEVELS[0].id) === 0;
+    const range = chapterRange() || [0, LEVELS.length];
+    const visible = LEVELS.slice(range[0], range[1]);
+    const gate = chapterGate();
+    const firstLockedGlobally = gate && Store.stars(gate) === 0 && Store.stars(visible[0].id) === 0;
     wrap.innerHTML = `
       <div class="hero">
         <div class="hero-emoji">🦉</div>
         <div>
-          <h1 class="hero-title">English Fun!</h1>
+          <h1 class="hero-title">${chapterTitle() || 'English Fun!'}</h1>
           <p class="hero-sub">Apprends l’anglais en jouant, petit à petit. Clique sur 🔊 pour entendre les mots !</p>
         </div>
       </div>
       <div class="level-grid">
-        ${LEVELS.map((lv, i) => {
+        ${visible.map((lv, i) => {
       const st = Store.stars(lv.id);
       const locked = i === 0 ? !!firstLockedGlobally
-        : (i > 0 && Store.stars(LEVELS[i - 1].id) === 0 && st === 0);
+        : (i > 0 && Store.stars(visible[i - 1].id) === 0 && st === 0);
       return `
-          <button class="level-card ${lv.color} ${locked ? 'locked' : ''}" data-level="${i}" ${locked ? 'disabled' : ''}>
+          <button class="level-card ${lv.color} ${locked ? 'locked' : ''}" data-level="${range[0] + i}" ${locked ? 'disabled' : ''}>
             <span class="lc-icon">${locked ? '🔒' : lv.icon}</span>
             <span class="lc-body">
               <span class="lc-title">${esc(lv.title)}</span>
@@ -474,7 +482,6 @@ const App = (() => {
     if (view === 'lesson') renderLesson(i);
     else startSession(i);
   }
-
   /* ---------- lesson screen ---------- */
   function renderLesson(i) {
     const lv = LEVELS[i];
@@ -859,6 +866,7 @@ const App = (() => {
 
   /* ---------- boot ---------- */
   function boot() {
+    if (!$('#btn-sound')) return;   // hub page loads this file for Speech only
     const t = $('#btn-sound');
     function paint() { t.textContent = Speech.isEnabled() ? '🔊 Son : oui' : '🔇 Son : non'; }
     t.addEventListener('click', () => { const v = !Speech.isEnabled(); Speech.setEnabled(v); Store.set('soundOn', v); paint(); if (v) Sfx.click(); });
