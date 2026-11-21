@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Test voix — English Fun</title>
+<style>
+  body { font-family: system-ui, sans-serif; background:#141021; color:#fff; margin:0; padding:20px; }
+  h1 { font-size:22px; }
+  button { font-size:18px; padding:14px 18px; margin:6px 6px 6px 0; border-radius:14px; border:none; background:#7c5cff; color:#fff; }
+  #log { background:#0d0a18; border-radius:12px; padding:14px; font-size:15px; line-height:1.6; white-space:pre-wrap; margin-top:14px; }
+  .ok { color:#7dff9e; } .bad { color:#ff7d7d; }
+</style>
+</head>
+<body>
+<h1>🔊 Test de la voix anglaise</h1>
+<p>Tape les boutons dans l'ordre. Résultat écrit en dessous.</p>
+<button id="b1">1️⃣ Lister les voix</button>
+<button id="b2">2️⃣ Dire « Hello! My name is English Fun! »</button>
+<button id="b3">3️⃣ Redire SANS annuler avant</button>
+<div id="log">En attente…</div>
+<script>
+const log = document.getElementById('log');
+function say(msg, cls) { const d = document.createElement('div'); if (cls) d.className = cls; d.textContent = msg; log.appendChild(d); }
+say('Build: diag-1');
+if (!('speechSynthesis' in window)) say('❌ speechSynthesis ABSENT de ce navigateur', 'bad');
+else say('✅ speechSynthesis présent', 'ok');
+
+document.getElementById('b1').onclick = () => {
+  const vs = window.speechSynthesis.getVoices();
+  say('— getVoices(): ' + vs.length + ' voix');
+  vs.slice(0, 40).forEach(v => say('   • ' + v.name + ' [' + v.lang + ']' + (v.default ? ' (défaut)' : '')));
+  const en = vs.filter(v => /^en/i.test(v.lang));
+  if (!en.length) say('❌ AUCUNE voix anglaise installée → installe Google TTS + voix English (UK)', 'bad');
+  else say('✅ ' + en.length + ' voix anglaise(s) dispo', 'ok');
+};
+
+function speakIt(txt, cancelFirst) {
+  const vs = window.speechSynthesis.getVoices();
+  const en = vs.find(v => /en[-_]GB/i.test(v.lang)) || vs.find(v => /^en/i.test(v.lang)) || null;
+  if (cancelFirst) window.speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(txt);
+  u.lang = 'en-GB'; if (en) u.voice = en;
+  u.onstart = () => say('▶️ onstart — le moteur a commencé (' + (en ? en.name : 'voix par défaut') + ')', 'ok');
+  u.onend = () => say('⏹️ onend');
+  u.onerror = (e) => say('❌ onerror: ' + e.error, 'bad');
+  window.speechSynthesis.speak(u);
+  setTimeout(() => {
+    if (!window.speechSynthesis.speaking && !window.speechSynthesis.pending)
+      say('⚠️ rien ne parle (speaking=false juste après speak())', 'bad');
+  }, 1200);
+}
+document.getElementById('b2').onclick = () => speakIt('Hello! My name is English Fun!', true);
+document.getElementById('b3').onclick = () => speakIt('Hello! My name is English Fun!', false);
+// voices populate late on Android
+setTimeout(() => { const n = window.speechSynthesis.getVoices().length; say('(auto) ' + n + ' voix détectées au chargement'); }, 1500);
+</script>
+</body>
+</html>
