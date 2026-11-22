@@ -47,7 +47,7 @@ const NetVoice = (() => {
     return 'https://code.responsivevoice.org/getvoice.php?t=' + encodeURIComponent(text.slice(0, 200)) +
       '&tl=' + encodeURIComponent(tl) + '&svcv=2&svcvv=1';
   }
-  async function playOne(src, cached, key, tl) {
+  async function playOne(src, cached, key, tl, alive) {
     try {
       const a = new Audio(src);
       a.volume = 1;
@@ -57,15 +57,17 @@ const NetVoice = (() => {
         setTimeout(() => a.ended ? res() : rej(new Error('timeout')), 6000);
         a.play().catch(rej);
       });
+      // If a local utterance claimed this word while we were buffering/fetching, stay silent.
+      if (alive && !alive()) { try { a.pause(); } catch (e) {} return false; }
       return true;
     } catch (e) { return false; }
     finally { if (cached) setTimeout(() => URL.revokeObjectURL(src), 30000); }
   }
-  async function play(text, tl) {
+  async function play(text, tl, alive) {
     tl = tl || 'en-GB';
     const key = tl + '::' + text.toLowerCase().trim();
     const cached = await get(key);
-    const ok = await playOne(cached ? URL.createObjectURL(cached) : urlFor(text, tl), cached, key, tl);
+    const ok = await playOne(cached ? URL.createObjectURL(cached) : urlFor(text, tl), cached, key, tl, alive);
     if (ok) {
       if (!cached && pool <= 3) {   // first streamed play: store clip for offline reuse
         pool++;
@@ -78,7 +80,7 @@ const NetVoice = (() => {
     if (tl !== 'en-GB') {           // unknown locale? retry with the base one
       const k2 = 'en-GB::' + text.toLowerCase().trim();
       const c2 = await get(k2);
-      return playOne(c2 ? URL.createObjectURL(c2) : urlFor(text, 'en-GB'), c2, k2, 'en-GB');
+      return playOne(c2 ? URL.createObjectURL(c2) : urlFor(text, 'en-GB'), c2, k2, 'en-GB', alive);
     }
     return false;
   }
@@ -136,14 +138,22 @@ const Speech = (() => {
   let lastSpokeAt = 0;                       // when ANY utterance last really started
   const onlineBusy = new Set();              // words currently being played/fetched online
   const failCount = Object.create(null);     // word -> consecutive local-engine failures
+  const spokenToken = Object.create(null);   // word -> token claimed by the first path that spoke
+  function claimSpeak(k) {                   // returns true if this path may speak (first claim wins)
+    const t = (spokenToken[k] || 0) + 1;
+    spokenToken[k] = t;
+    return t;
+  }
+  function stillMine(k, t) { return spokenToken[k] === t; }
   function onlineFallback(text) {
     if (typeof text !== 'string' || !text.trim()) return;
     // engine refused everything: use the cached online voice instead of warning right away
     const k = text.toLowerCase().trim();
     if (onlineBusy.has(k)) return;           // one in-flight attempt per word
     onlineBusy.add(k);
+    const tok = claimSpeak(k);               // join the same single-flight race
     const acc = accent;   // capture: user may toggle mid-play
-    NetVoice.play(text, acc === 'us' ? 'en-US' : 'en-GB').then(ok => {
+    NetVoice.play(text, acc === 'us' ? 'en-US' : 'en-GB', () => stillMine(k, tok)).then(ok => {
       onlineBusy.delete(k);
       if (ok) { lastSpokeAt = Date.now(); } else { maybeWarn('local+online both failed'); }
     }).catch(() => { onlineBusy.delete(k); maybeWarn('online threw'); });
@@ -168,15 +178,20 @@ const Speech = (() => {
     // one throws (or makes speak fail with synthesis-failed). Fall back to lang-only speech.
     if (v) { try { u.voice = v; } catch (e) { u.voice = null; } }
     u.rate = opts.rate || 0.85; u.pitch = opts.pitch || 1.05; u.volume = 1;
+    const k = text.toLowerCase().trim();
+    const tok = claimSpeak(k);               // first path to actually start owns this word
     let spoke = false;
-    u.onstart = () => { spoke = true; lastSpokeAt = Date.now(); failCount[text.toLowerCase().trim()] = 0; };
-    u.onerror = (ev) => {
-      if (!spoke) retry(text, opts, attempt + 1);
+    u.onstart = () => {
+      spoke = true; lastSpokeAt = Date.now(); failCount[k] = 0;
+      if (!stillMine(k, tok)) { try { window.speechSynthesis.cancel(); } catch (e) {} }  // someone else already spoke
     };
-    u.onend = () => { if (!spoke) retry(text, opts, attempt + 1); };
+    u.onerror = (ev) => {
+      if (!spoke && stillMine(k, tok)) retry(text, opts, attempt + 1);
+    };
+    u.onend = () => { if (!spoke && stillMine(k, tok)) retry(text, opts, attempt + 1); };
     try { window.speechSynthesis.speak(u); }
-    catch (e) { if (!spoke) retry(text, opts, attempt + 1); }
-    setTimeout(() => { if (!spoke && !window.speechSynthesis.speaking) retry(text, opts, attempt + 1); }, 1600);
+    catch (e) { if (!spoke && stillMine(k, tok)) retry(text, opts, attempt + 1); }
+    setTimeout(() => { if (!spoke && stillMine(k, tok) && !window.speechSynthesis.speaking) retry(text, opts, attempt + 1); }, 1600);
   }
   function retry(text, opts, attempt) {
     if (attempt >= 1) {
@@ -192,12 +207,14 @@ const Speech = (() => {
     const u = new SpeechSynthesisUtterance(text);
     u.lang = 'en-GB';
     u.rate = opts.rate || 0.85; u.pitch = opts.pitch || 1.05; u.volume = 1;
+    const k = text.toLowerCase().trim();
+    const tok = claimSpeak(k);
     let spoke = false;
-    u.onstart = () => { spoke = true; lastSpokeAt = Date.now(); };
-    u.onerror = () => { if (!spoke) maybeWarn('fallback voice failed'); };
-    u.onend = () => { if (!spoke) maybeWarn('fallback never started'); };
-    try { window.speechSynthesis.speak(u); } catch (e) { maybeWarn('fallback threw'); }
-    setTimeout(() => { if (!spoke && !window.speechSynthesis.speaking) maybeWarn('fallback silent'); }, 1600);
+    u.onstart = () => { spoke = true; lastSpokeAt = Date.now(); if (!stillMine(k, tok)) { try { window.speechSynthesis.cancel(); } catch (e) {} } };
+    u.onerror = () => { if (!spoke && stillMine(k, tok)) maybeWarn('fallback voice failed'); };
+    u.onend = () => { if (!spoke && stillMine(k, tok)) maybeWarn('fallback never started'); };
+    try { window.speechSynthesis.speak(u); } catch (e) { if (stillMine(k, tok)) maybeWarn('fallback threw'); }
+    setTimeout(() => { if (!spoke && stillMine(k, tok) && !window.speechSynthesis.speaking) maybeWarn('fallback silent'); }, 1600);
   }
   function say(text, opts) {
     opts = opts || {};
