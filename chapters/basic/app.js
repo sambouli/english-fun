@@ -445,9 +445,17 @@ function mkListen(items, n) {
 function mkChoice(qs) {
   return { type: 'choice', prompt: 'Choisis la bonne réponse ✅', items: qs.map(q => Object.assign({}, q, { options: shuffle(q.options) })) };
 }
+// Bricks are lowercased so the capital letter doesn't reveal which word comes first —
+// except the pronoun "I", which is always capital in English (and never sentence-initial clue
+// material since our sentences start with it anyway... still: keep it correct, not lowercase).
+function lowerBrick(w) {
+  const c = w.replace(/[?!.]/g, '');
+  if (/^i$/i.test(c)) return 'I';
+  return c.charAt(0) === c.charAt(0).toUpperCase() ? c.toLowerCase() : c;
+}
 function mkOrder(items) {
   // chips are stripped of punctuation: "eggs?" becomes chip "eggs"; comparison ignores punctuation anyway
-  return { type: 'order', prompt: 'Remets les mots dans le bon ordre 🧱', items: items.map(it => ({ words: it.en.split(' ').map(w => { const c = w.replace(/[?!.]/g, ''); return c.charAt(0) === c.charAt(0).toUpperCase() ? c.toLowerCase() : c; }), answer: it.en, fr: it.fr, speak: it.en })) };
+  return { type: 'order', prompt: 'Remets les mots dans le bon ordre 🧱', items: items.map(it => ({ words: it.en.split(' ').map(lowerBrick), answer: it.en, fr: it.fr, speak: it.en })) };
 }
 function mkBuild(items) {
   return { type: 'build', prompt: 'Fabrique la phrase anglaise avec les briques 🏗️', items: items.map(it => ({ target: it.en, fr: it.fr, speak: it.en, extra: it.extra || [] })) };
@@ -969,7 +977,7 @@ const App = (() => {
     function draw() {
       if (i >= set.items.length) return finishSet();
       const it = set.items[i]; markVisible(it);
-      const words = it.target.split(' ').map(w => w.charAt(0) === w.charAt(0).toUpperCase() ? w.toLowerCase() : w);
+      const words = it.target.split(' ').map(lowerBrick);
       const bank = shuffle(words.concat(shuffle(it.extra).slice(0, Math.min(3, it.extra.length))));
       root.innerHTML = `<div class="q-card">
         <p class="q-fr">🇫🇷 ${esc(it.fr)}</p>
