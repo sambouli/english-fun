@@ -92,7 +92,7 @@ const LESSONS2 = [
   {
     id: 'family', title: 'My Family 👨‍👩‍👧', color: 'coral', icon: '👨‍👩‍👧', sub: 'La famille et les animaux',
     blocks: [
-      { kind: 'tip', html: 'Voici toute ta famille en anglais ! Astuce : le <b>h</b> de <b>his</b> (son, à lui) et <b>her</b> (son, à elle) ne se prononce PAS. 🤫' },
+      { kind: 'tip', html: 'Voici toute ta famille en anglais ! Astuce : le <b>h</b> de <b>his</b> (son, à lui) et <b>her</b> (son, à elle) est très léger, presque muet — on dit « izz » et « eur ». Écoute-les en cliquant dessus ! 🤫' },
       { kind: 'words', cat: 'family' },
       { kind: 'rule', title: 'À qui est-ce ? 👐', html: '<b>my</b> = mon/ma · <b>your</b> = ton/ta · <b>his</b> = son (à lui) · <b>her</b> = son (à elle)<br>✅ <b>Her brother is funny.</b> = Son frère (à elle) est drôle.<br>✅ <b>His dog is big.</b> = Son chien (à lui) est gros.' },
       { kind: 'phrasebook', title: 'Parler de sa famille 🏡', rows: [['I have a brother.', 'J’ai un frère.'], ['My sister is ten.', 'Ma sœur a dix ans.'], ['My grandmother cooks well.', 'Ma grand-mère cuisine bien.'], ['We love our pet.', 'Nous aimons notre animal.']] }
