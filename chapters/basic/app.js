@@ -654,10 +654,12 @@ const App = (() => {
     }).join('')}
       </div>
       <div class="map-foot">
+        <button class="btn ghost" id="btn-cheat">🎴 Mes fiches magiques</button>
         <button class="btn ghost" id="btn-parent">${parentOpen ? '🔓 Tout déverrouillé' : '🔒 Mode parent'}</button>
         <button class="btn ghost" id="btn-reset">🧹 Recommencer à zéro</button>
       </div>`;
     $$('.level-card', wrap).forEach(b => b.addEventListener('click', () => openLevel(+b.dataset.level, 'lesson')));
+    $('#btn-cheat').addEventListener('click', showCheatSheet);
     $('#btn-parent').addEventListener('click', () => {
       if (Store.get('parentOpen') !== true) {
         const ok = confirm('Mode parent : déverrouille tous les niveaux et tous les chapitres (pour reprendre sur un autre téléphone).\n\nTu es un adulte ?');
@@ -1059,6 +1061,43 @@ const App = (() => {
       ctx.fillRect(-p.s / 2, -p.s / 2, p.s, p.s * .6); ctx.restore();
     });
     raf = parts.length ? requestAnimationFrame(tick) : null;
+  }
+
+  /* ---------- cheat sheet modal (be/have + pronouns) ---------- */
+  const CHEAT = {
+    pronouns: [
+      ['I', 'je', '🙋‍♀️'], ['you', 'tu / vous', '🫵'], ['he', 'il', '👦'], ['she', 'elle', '👧'],
+      ['it', 'il/elle (chose, animal)', '🐶'], ['we', 'nous', '👨‍👩‍👧'], ['they', 'ils/elles', '👥']
+    ],
+    be: [['I am', "je suis", "I am happy"], ["you're", "tu es", "you're nice!"], ['he is / she is / it is', 'il est / elle est', 'she is nine'],
+         ['we are', 'nous sommes', 'we are friends'], ['they are', 'ils sont', 'they are cats']],
+    have: [['I have', "j'ai", 'I have a cat'], ['you have', 'tu as', 'you have a dog'], ['he has / she has / it has', 'il a / elle a', 'she has a book'],
+           ['we have', 'nous avons', 'we have fun'], ['they have', 'ils ont', 'they have two birds']]
+  };
+  function cheatTable(title, icon, rows) {
+    // tap the bold phrase -> hears the FORM (with its /s/ or irregular shape);
+    // tap the green example -> hears the full sentence.
+    return `<div class="rule cheat-block"><h3>${icon} ${title} <span class="pb-sp">— tape pour entendre 🔊</span></h3>
+      <div class="cheat-rows">${rows.map(r => `
+        <div class="cheat-row"><button class="cheat-say" data-say="${esc(r[0].split(' / ')[0])}"><b>${esc(r[0])}</b></button><i>${esc(r[1])}</i><button class="cheat-say cheat-ex" data-say="${esc(r[2])}" title="Écouter la phrase"><em>${esc(r[2])}</em> 🔊</button></div>`).join('')}
+      </div></div>`;
+  }
+  function showCheatSheet() {
+    Sfx.unlock(); Sfx.click();
+    const old = $('#cheat-modal'); if (old) old.remove();
+    const m = document.createElement('div');
+    m.id = 'cheat-modal';
+    m.innerHTML = `<div class="cheat-card">
+      <button class="btn big primary" id="cheat-close">✖️ Fermer</button>
+      ${cheatTable('Les pronoms', '🙋‍♀️', CHEAT.pronouns)}
+      ${cheatTable('To BE — être', '🟦', CHEAT.be)}
+      ${cheatTable('To HAVE — avoir', '🟩', CHEAT.have)}
+      <p style="text-align:center;font-size:15px;color:#6b6390">💡 « I am », « you are », « he i<b>s</b> », « we are »… et pour avoir : « he ha<b>s</b> », tout le monde dit « have » sauf il/elle.</p>
+    </div>`;
+    document.body.appendChild(m);
+    wireBlocks(m);
+    $('#cheat-close').addEventListener('click', () => { m.remove(); Sfx.click(); });
+    m.addEventListener('click', e => { if (e.target === m) m.remove(); });
   }
 
   /* ---------- boot ---------- */
